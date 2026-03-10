@@ -13,16 +13,16 @@ Before using the script, edit the GPU account options in the script to match the
 Locate the sections:
 
 ```bash
-# multiple options for GPUs
-account="$(prompt_menu \        # L227
+# multiple options for GPUs (`ssr.sh:253`)
+account="$(prompt_menu \
   "8) Select account:" \
   1 \
   "torch_pr_56_tandon_advanced" \
   "torch_pr_676_tandon_advanced" \
   "torch_pr_676_tandon_priority")"
 
-# fixed option for CPUs
-account="torch_pr_56_general"   # L234
+# fixed option for CPUs (`ssr.sh:262`)
+account="torch_pr_56_general"
 ```
 
 Replace the account names with the accounts assigned to your user.

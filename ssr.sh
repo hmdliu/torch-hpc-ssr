@@ -8,6 +8,8 @@
 # ------------------------------------------------------------------
 
 set -u
+
+# Exit cleanly on Ctrl+C.
 trap 'echo; echo "Aborted by user."; exit 130' INT
 
 print_notice() {
@@ -31,8 +33,13 @@ prompt_menu() {
   # Usage:
   #   prompt_menu "Prompt text" default_index "opt1" "opt2" ...
   #
-  # Prints menu to stderr, returns selected option on stdout.
-
+  # Contract:
+  #   - All UI text goes to stderr
+  #   - Only the final selected value is printed to stdout
+  #
+  # This allows safe use with command substitution:
+  #   value="$(prompt_menu ...)"
+  #
   local prompt="$1"
   local default_index="$2"
   shift 2
@@ -70,6 +77,10 @@ prompt_menu() {
 }
 
 prompt_positive_int() {
+  # Contract:
+  #   - Only the validated integer is printed to stdout
+  #   - Any retry/error text goes to stderr
+  #
   local prompt="$1"
   local default_value="$2"
   local reply
@@ -87,11 +98,18 @@ prompt_positive_int() {
       return 0
     fi
 
-    echo "Invalid input. Please enter a positive integer, or press Enter for default."
+    echo "Invalid input. Please enter a positive integer, or press Enter for default." >&2
   done
 }
 
 prompt_memory() {
+  # Accept common Slurm-style memory strings, e.g.:
+  #   32GB, 64G, 8000M, 1TB
+  #
+  # Contract:
+  #   - Only the validated memory string is printed to stdout
+  #   - Any retry/error text goes to stderr
+  #
   local prompt="$1"
   local default_value="$2"
   local reply
@@ -109,7 +127,7 @@ prompt_memory() {
       return 0
     fi
 
-    echo "Invalid input. Use a Slurm-style memory string like 32GB, 64G, 8000M, or press Enter for default."
+    echo "Invalid input. Use a Slurm-style memory string like 32GB, 64G, 8000M, or press Enter for default." >&2
   done
 }
 
@@ -132,11 +150,15 @@ prompt_confirm() {
 }
 
 build_time_string() {
+  # Convert an integer hour count to Slurm HH:MM:SS format.
   local hours="$1"
   echo "${hours}:00:00"
 }
 
 quote_arg_for_display() {
+  # Pretty-print a command argument for display in a shell-safe way.
+  # This is only for showing the command to the user; execution uses
+  # the original array values directly.
   local arg="$1"
 
   # Safe unquoted shell token
@@ -150,6 +172,7 @@ quote_arg_for_display() {
 }
 
 print_command_pretty() {
+  # Render a command array as a readable shell command line.
   local arg
   for arg in "$@"; do
     quote_arg_for_display "$arg"
@@ -160,6 +183,9 @@ print_command_pretty() {
 
 main() {
   print_notice
+
+  # Total interactive workflow steps shown to the user.
+  local total_steps=8
 
   local submit_mode
   local job_kind
@@ -172,7 +198,7 @@ main() {
   local account=""
 
   submit_mode="$(prompt_menu \
-    "1) Select submission mode:" \
+    "[1/${total_steps}] Select submission mode:" \
     1 \
     "sbatch" \
     "srun")"
@@ -180,7 +206,7 @@ main() {
   echo
 
   job_kind="$(prompt_menu \
-    "2) Select job type:" \
+    "[2/${total_steps}] Select job type:" \
     1 \
     "gpu" \
     "cpu")"
@@ -188,19 +214,19 @@ main() {
   echo
 
   cpus="$(prompt_positive_int \
-    "3) Number of CPUs (--cpus-per-task)" \
+    "[3/${total_steps}] Number of CPUs (--cpus-per-task)" \
     4)"
 
   echo
 
   mem="$(prompt_memory \
-    "4) Memory (--mem)" \
+    "[4/${total_steps}] Memory (--mem)" \
     "32GB")"
 
   echo
 
   hours="$(prompt_positive_int \
-    "5) Time in hours (--time)" \
+    "[5/${total_steps}] Time in hours (--time)" \
     2)"
   time_str="$(build_time_string "$hours")"
 
@@ -208,7 +234,7 @@ main() {
 
   if [[ "$job_kind" == "gpu" ]]; then
     gpu_type="$(prompt_menu \
-      "6) Select GPU type:" \
+      "[6/${total_steps}] Select GPU type:" \
       1 \
       "any" \
       "h200" \
@@ -219,22 +245,25 @@ main() {
     echo
 
     gpu_count="$(prompt_positive_int \
-      "7) Number of GPUs" \
+      "[7/${total_steps}] Number of GPUs" \
       1)"
 
     echo
 
+    # TODO: Fill in your GPU accounts below
     account="$(prompt_menu \
-      "8) Select account:" \
+      "[8/${total_steps}] Select account:" \
       1 \
       "torch_pr_56_tandon_advanced" \
       "torch_pr_676_tandon_advanced" \
       "torch_pr_676_tandon_priority")"
   else
+    # CPU jobs skip GPU-specific questions and use the CPU default account.
+    # TODO: Fill in your CPU account below
     account="torch_pr_56_general"
-    echo "6) GPU type: skipped (CPU job)"
-    echo "7) GPU count: skipped (CPU job)"
-    echo "8) Account: ${account} [CPU default]"
+    echo "[6/${total_steps}] GPU type: skipped (CPU job)"
+    echo "[7/${total_steps}] GPU count: skipped (CPU job)"
+    echo "[8/${total_steps}] Account: ${account} [CPU default]"
   fi
 
   echo
@@ -252,6 +281,7 @@ main() {
   echo "================================================"
   echo
 
+  # Build the command as an array to avoid word-splitting bugs.
   local -a cmd
   cmd=(
     "$submit_mode"
@@ -270,6 +300,7 @@ main() {
     fi
   fi
 
+  # Interactive shell for srun; persistent placeholder job for sbatch.
   if [[ "$submit_mode" == "srun" ]]; then
     cmd+=("--pty" "/bin/bash")
   else
